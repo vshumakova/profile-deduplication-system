@@ -1,4 +1,4 @@
-# Flocktory Profile Deduplication
+# Profile Deduplication System
 
 MVP-сервис для поиска, оценки и кластеризации дублей клиентских профилей на маркетплейсе скидок.
 
