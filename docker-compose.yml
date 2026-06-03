@@ -1,0 +1,142 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: postgres
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: flocktory
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - db:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d flocktory"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  streamlit:
+    build:
+      context: ./streamlit
+    container_name: streamlit
+    environment:
+      BACKEND_API_URL: http://backend-api:8000
+    ports:
+      - "8501:8501"
+    depends_on:
+      - backend-api
+    restart: unless-stopped
+
+  pipeline-worker:
+    build:
+      context: ./pipeline-worker
+    container_name: pipeline_worker
+    environment:
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_BATCHES_BUCKET: flocktory-batches
+
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: flocktory
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_QUEUE_NAME: batch_processing_queue
+    depends_on:
+      - minio
+      - postgres
+      - redis
+    restart: unless-stopped
+
+
+  spark-jobs:
+    build:
+      context: ./spark-jobs
+    container_name: spark_jobs
+    volumes:
+      - ./:/data
+    environment:
+      PYTHONUNBUFFERED: 1
+    profiles:
+      - tools
+      
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "9000:9000"
+      - "9002:9001"
+    volumes:
+      - minio_data:/data
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: minio_init
+    depends_on:
+      - minio
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    entrypoint: >
+      /bin/sh -c "
+      sleep 5;
+      mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD;
+      mc mb -p local/flocktory-batches || true;
+      mc mb -p local/flocktory-artifacts || true;
+      mc anonymous set none local/flocktory-batches;
+      mc anonymous set none local/flocktory-artifacts;
+      exit 0;
+      "
+
+  backend-api:
+    build:
+      context: ./backend-api
+    container_name: backend_api
+    environment:
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_BATCHES_BUCKET: flocktory-batches
+
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: flocktory
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_QUEUE_NAME: batch_processing_queue
+    ports:
+      - "8000:8000"
+    depends_on:
+      - minio
+      - postgres
+      - redis
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+
+volumes:
+  db:
+  minio_data:
