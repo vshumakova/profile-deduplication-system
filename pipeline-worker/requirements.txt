@@ -1,0 +1,11 @@
+pandas==2.2.3
+numpy==1.26.4
+scikit-learn==1.8.0
+lightgbm==4.5.0
+joblib==1.4.2
+boto3==1.35.76
+python-dotenv==1.0.1
+psycopg2-binary==2.9.10
+redis==5.2.1
+pyarrow==18.1.0
+pyspark==3.5.3
